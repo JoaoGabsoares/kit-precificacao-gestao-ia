@@ -306,5 +306,62 @@
     <p class="mt-1 text-gray-600">Este produto não é associado ou endossado pela Meta, Google ou Hotmart de forma institucional.</p>
   </footer>
 
+  <!-- Script de Rastreamento de Tráfego e Preservação de UTMs Hotmart -->
+  <script>
+    (function() {
+      // 1. Preservação Dinâmica de Parâmetros de Origem (UTM e SRC Hotmart)
+      function setupTrackingLinks() {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (!urlParams.toString()) return;
+
+        // Se o usuário veio por campanha mas não tem src explícito, gera src inteligente para a Hotmart
+        if (!urlParams.has('src')) {
+          const source = urlParams.get('utm_source') || 'trafego';
+          const campaign = urlParams.get('utm_campaign') || '';
+          const autoSrc = campaign ? `${source}_${campaign}`.substring(0, 30) : source;
+          urlParams.set('src', autoSrc);
+        }
+
+        const checkoutButtons = document.querySelectorAll('a[href*="pay.hotmart.com"]');
+        checkoutButtons.forEach(button => {
+          try {
+            const destUrl = new URL(button.href);
+            urlParams.forEach((value, key) => {
+              destUrl.searchParams.set(key, value);
+            });
+            button.href = destUrl.toString();
+          } catch (e) {
+            console.error("Erro ao formatar link de checkout:", e);
+          }
+        });
+      }
+
+      // 2. Disparo de Evento InitiateCheckout no clique do botão
+      function setupCheckoutTrackingEvents() {
+        const checkoutButtons = document.querySelectorAll('a[href*="pay.hotmart.com"]');
+        checkoutButtons.forEach(button => {
+          button.addEventListener('click', function() {
+            if (typeof fbq === 'function') {
+              fbq('track', 'InitiateCheckout', {
+                content_name: 'Kit Mestre: Precificação Lucrativa & Gestão com IA',
+                currency: 'BRL',
+                value: 37.00
+              });
+            }
+          });
+        });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+          setupTrackingLinks();
+          setupCheckoutTrackingEvents();
+        });
+      } else {
+        setupTrackingLinks();
+        setupCheckoutTrackingEvents();
+      }
+    })();
+  </script>
 </body>
 </html>
