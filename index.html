@@ -431,6 +431,44 @@
   <!-- Script de Rastreamento de Tráfego e Preservação de UTMs Hotmart -->
   <script>
     (function() {
+      const TRACKING_ENDPOINT = 'http://localhost:3456/api/track/event';
+
+      function sendTelemetry(type, details = {}) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const payload = {
+          type,
+          source: urlParams.get('utm_source') || urlParams.get('src') || (document.referrer ? 'referrer' : 'direct'),
+          referrer: document.referrer || '',
+          utm_source: urlParams.get('utm_source') || '',
+          utm_campaign: urlParams.get('utm_campaign') || '',
+          utm_medium: urlParams.get('utm_medium') || '',
+          details
+        };
+
+        // Envia beacon se disponível para garantir entrega sem travar navegação
+        try {
+          if (navigator.sendBeacon) {
+            const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+            navigator.sendBeacon(TRACKING_ENDPOINT, blob);
+          } else {
+            fetch(TRACKING_ENDPOINT, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+              keepalive: true
+            }).catch(() => {});
+          }
+        } catch (e) {}
+
+        // Fallback no localStorage
+        try {
+          const stats = JSON.parse(localStorage.getItem('hotmart_page_stats') || '{"views":0,"clicks":0}');
+          if (type === 'page_view') stats.views += 1;
+          if (type === 'checkout_click') stats.clicks += 1;
+          localStorage.setItem('hotmart_page_stats', JSON.stringify(stats));
+        } catch (e) {}
+      }
+
       function setupTrackingLinks() {
         const urlParams = new URLSearchParams(window.location.search);
         if (!urlParams.toString()) return;
@@ -458,8 +496,13 @@
 
       function setupCheckoutTrackingEvents() {
         const checkoutButtons = document.querySelectorAll('a[href*="pay.hotmart.com"]');
-        checkoutButtons.forEach(button => {
+        checkoutButtons.forEach((button, index) => {
           button.addEventListener('click', function() {
+            sendTelemetry('checkout_click', {
+              buttonIndex: index + 1,
+              buttonText: (button.innerText || '').trim().slice(0, 50)
+            });
+
             if (typeof fbq === 'function') {
               fbq('track', 'InitiateCheckout', {
                 content_name: 'Kit Mestre: Precificação Lucrativa & Gestão com IA',
@@ -471,14 +514,16 @@
         });
       }
 
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function() {
-          setupTrackingLinks();
-          setupCheckoutTrackingEvents();
-        });
-      } else {
+      function init() {
         setupTrackingLinks();
         setupCheckoutTrackingEvents();
+        sendTelemetry('page_view', { pageTitle: document.title });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
       }
     })();
   </script>
