@@ -431,36 +431,56 @@
   <!-- Script de Rastreamento de Tráfego e Preservação de UTMs Hotmart -->
   <script>
     (function() {
-      const TRACKING_ENDPOINT = 'http://localhost:3456/api/track/event';
+      const urlParams = new URLSearchParams(window.location.search);
+      const isHttps = window.location.protocol === 'https:';
+      const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+      // Detecta endpoint seguro ou local sem violar política de Mixed Content
+      let trackingEndpoint = urlParams.get('tracker');
+      if (!trackingEndpoint && isLocalHost) {
+        trackingEndpoint = 'http://localhost:3456/api/track/event';
+      }
+
+      function detectSource() {
+        if (urlParams.get('utm_source')) return urlParams.get('utm_source');
+        if (urlParams.get('src')) return urlParams.get('src');
+        const ref = (document.referrer || '').toLowerCase();
+        if (ref.includes('whats') || ref.includes('wa.me')) return 'whatsapp';
+        if (ref.includes('insta') || ref.includes('ig')) return 'instagram';
+        if (ref.includes('google')) return 'google_organico';
+        if (ref.includes('facebook') || ref.includes('fb')) return 'facebook';
+        if (ref) return 'web_referrer';
+        return 'direto_landing';
+      }
 
       function sendTelemetry(type, details = {}) {
-        const urlParams = new URLSearchParams(window.location.search);
+        const source = detectSource();
         const payload = {
           type,
-          source: urlParams.get('utm_source') || urlParams.get('src') || (document.referrer ? 'referrer' : 'direct'),
-          referrer: document.referrer || '',
-          utm_source: urlParams.get('utm_source') || '',
+          source,
+          referrer: document.referrer || 'Direto',
+          utm_source: urlParams.get('utm_source') || source,
           utm_campaign: urlParams.get('utm_campaign') || '',
           utm_medium: urlParams.get('utm_medium') || '',
           details
         };
 
-        // Envia beacon se disponível para garantir entrega sem travar navegação
-        try {
-          if (navigator.sendBeacon) {
-            const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-            navigator.sendBeacon(TRACKING_ENDPOINT, blob);
-          } else {
-            fetch(TRACKING_ENDPOINT, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-              keepalive: true
-            }).catch(() => {});
-          }
-        } catch (e) {}
+        if (trackingEndpoint) {
+          try {
+            if (navigator.sendBeacon) {
+              const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+              navigator.sendBeacon(trackingEndpoint, blob);
+            } else {
+              fetch(trackingEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                keepalive: true
+              }).catch(() => {});
+            }
+          } catch (e) {}
+        }
 
-        // Fallback no localStorage
         try {
           const stats = JSON.parse(localStorage.getItem('hotmart_page_stats') || '{"views":0,"clicks":0}');
           if (type === 'page_view') stats.views += 1;
@@ -470,22 +490,20 @@
       }
 
       function setupTrackingLinks() {
-        const urlParams = new URLSearchParams(window.location.search);
-        if (!urlParams.toString()) return;
-
-        if (!urlParams.has('src')) {
-          const source = urlParams.get('utm_source') || 'trafego';
-          const campaign = urlParams.get('utm_campaign') || '';
-          const autoSrc = campaign ? `${source}_${campaign}`.substring(0, 30) : source;
-          urlParams.set('src', autoSrc);
-        }
+        const source = detectSource();
+        const campaign = urlParams.get('utm_campaign') || '';
+        const autoSrc = campaign ? `${source}_${campaign}`.substring(0, 30) : source;
 
         const checkoutButtons = document.querySelectorAll('a[href*="pay.hotmart.com"]');
         checkoutButtons.forEach(button => {
           try {
             const destUrl = new URL(button.href);
+            // Injeta parâmetros de origem no checkout da Hotmart
+            if (!destUrl.searchParams.has('src')) {
+              destUrl.searchParams.set('src', autoSrc);
+            }
             urlParams.forEach((value, key) => {
-              destUrl.searchParams.set(key, value);
+              if (key !== 'tracker') destUrl.searchParams.set(key, value);
             });
             button.href = destUrl.toString();
           } catch (e) {
